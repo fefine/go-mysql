@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/juju/errors"
-	"github.com/siddontang/go-mysql/client"
-	"github.com/siddontang/go-mysql/dump"
-	"github.com/siddontang/go-mysql/mysql"
-	"github.com/siddontang/go-mysql/replication"
-	"github.com/siddontang/go-mysql/schema"
+	"go-mysql/client"
+	"go-mysql/dump"
+	"go-mysql/mysql"
+	"go-mysql/replication"
+	"go-mysql/schema"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -201,8 +201,9 @@ func (c *Canal) run() error {
 	defer func() {
 		c.cancel()
 	}()
-
-	if !c.dumped {
+/*
+    // 这个没有必要
+    if !c.dumped {
 		c.dumped = true
 
 		err := c.tryDump()
@@ -213,7 +214,7 @@ func (c *Canal) run() error {
 			return errors.Trace(err)
 		}
 	}
-
+*/
 	if err := c.runSyncBinlog(); err != nil {
 		log.Errorf("canal start sync binlog err: %v", err)
 		return errors.Trace(err)
@@ -326,8 +327,8 @@ func (c *Canal) GetTable(db string, table string) (*schema.Table, error) {
 				Columns: make([]schema.TableColumn, 0, 2),
 				Indexes: make([]*schema.Index, 0),
 			}
-			ta.AddColumn("id", "bigint(20)", "", "")
-			ta.AddColumn("type", "char(1)", "", "")
+			ta.AddColumn("id", "bigint(20)", "", "", true)
+			ta.AddColumn("type", "char(1)", "", "", false)
 			c.tableLock.Lock()
 			c.tables[key] = ta
 			c.tableLock.Unlock()

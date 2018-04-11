@@ -7,9 +7,9 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/satori/go.uuid"
-	"github.com/siddontang/go-mysql/mysql"
-	"github.com/siddontang/go-mysql/replication"
-	"github.com/siddontang/go-mysql/schema"
+	"go-mysql/mysql"
+	"go-mysql/replication"
+	"go-mysql/schema"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -20,9 +20,17 @@ var (
 	expDropTable   = regexp.MustCompile("(?i)^DROP\\sTABLE(\\sIF\\sEXISTS){0,1}\\s`{0,1}(.*?)`{0,1}\\.{0,1}`{0,1}([^`\\.]+?)`{0,1}(?:$|\\s)")
 )
 
-func (c *Canal) startSyncer() (*replication.BinlogStreamer, error) {
+func (c *Canal) startSyncer() (s *replication.BinlogStreamer,err error) {
 	if !c.useGTID {
 		pos := c.master.Position()
+		// 当没有提供binlog pos时，获取最新的
+		if !checkValidPos(pos) {
+			log.Warn("not valid position, start from latest position")
+			pos, err = c.GetMasterPos()
+			if err != nil {
+				return
+			}
+		}
 		s, err := c.syncer.StartSync(pos)
 		if err != nil {
 			return nil, errors.Errorf("start sync replication at binlog %v error %v", pos, err)
@@ -40,7 +48,16 @@ func (c *Canal) startSyncer() (*replication.BinlogStreamer, error) {
 	}
 }
 
+func checkValidPos(pos mysql.Position) (ok bool) {
+	if pos.Name == "" && pos.Pos == 0 {
+		return false
+	}
+	return true
+}
+
 func (c *Canal) runSyncBinlog() error {
+	// 发送dump命令
+	// 循环接受binlog package， 并进行解析，放到chan中
 	s, err := c.startSyncer()
 	if err != nil {
 		return err
@@ -49,6 +66,7 @@ func (c *Canal) runSyncBinlog() error {
 	savePos := false
 	force := false
 	for {
+		// 从chan中取出
 		ev, err := s.GetEvent(c.ctx)
 
 		if err != nil {
@@ -66,6 +84,7 @@ func (c *Canal) runSyncBinlog() error {
 		// For RowsEvent, we can't save the position until meeting XIDEvent
 		// which tells the whole transaction is over.
 		// TODO: If we meet any DDL query, we must save too.
+		// TODO: Save position in file
 		switch e := ev.Event.(type) {
 		case *replication.RotateEvent:
 			pos.Name = string(e.NextLogName)
@@ -164,6 +183,9 @@ func (c *Canal) runSyncBinlog() error {
 	return nil
 }
 
+/**
+ * row event中包含insert， update，delete事件，进行细分
+ */
 func (c *Canal) handleRowsEvent(e *replication.BinlogEvent) error {
 	ev := e.Event.(*replication.RowsEvent)
 

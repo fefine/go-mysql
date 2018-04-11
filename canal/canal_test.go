@@ -9,7 +9,9 @@ import (
 
 	"github.com/juju/errors"
 	. "github.com/pingcap/check"
-	"github.com/siddontang/go-mysql/mysql"
+	"go-mysql/mysql"
+	"go-mysql/replication"
+	log "github.com/sirupsen/logrus"
 )
 
 var testHost = flag.String("host", "127.0.0.1", "MySQL host")
@@ -28,9 +30,10 @@ func (s *canalTestSuite) SetUpSuite(c *C) {
 	cfg := NewDefaultConfig()
 	cfg.Addr = fmt.Sprintf("%s:3306", *testHost)
 	cfg.User = "root"
+	cfg.Password = "Fsh950905"
 	cfg.HeartbeatPeriod = 200 * time.Millisecond
 	cfg.ReadTimeout = 300 * time.Millisecond
-	cfg.Dump.ExecutionPath = "mysqldump"
+	//cfg.Dump.ExecutionPath = "mysqldump"
 	cfg.Dump.TableDB = "test"
 	cfg.Dump.Tables = []string{"canal_test"}
 	cfg.Dump.Where = "id>0"
@@ -45,6 +48,7 @@ func (s *canalTestSuite) SetUpSuite(c *C) {
 	var err error
 	s.c, err = NewCanal(cfg)
 	c.Assert(err, IsNil)
+	/*
 	s.execute(c, "DROP TABLE IF EXISTS test.canal_test")
 	sql := `
         CREATE TABLE IF NOT EXISTS test.canal_test (
@@ -60,17 +64,19 @@ func (s *canalTestSuite) SetUpSuite(c *C) {
 	s.execute(c, "INSERT INTO test.canal_test (name) VALUES (?), (?), (?)", "a", "b", "c")
 
 	s.execute(c, "SET GLOBAL binlog_format = 'ROW'")
+	*/
 
 	s.c.SetEventHandler(&testEventHandler{c: c})
+	errCh := make(chan error, 1)
 	go func() {
-		err = s.c.Run()
-		c.Assert(err, IsNil)
+		errCh <- s.c.Run()
 	}()
+	c.Assert(<-errCh, IsNil)
 }
 
 func (s *canalTestSuite) TearDownSuite(c *C) {
 	// To test the heartbeat and read timeout,so need to sleep 1 seconds without data transmission
-	c.Logf("Start testing the heartbeat and read timeout")
+	log.Info("Start testing the heartbeat and read timeout")
 	time.Sleep(time.Second)
 
 	if s.c != nil {
@@ -80,6 +86,7 @@ func (s *canalTestSuite) TearDownSuite(c *C) {
 }
 
 func (s *canalTestSuite) execute(c *C, query string, args ...interface{}) *mysql.Result {
+	log.Infof("exe sql: %s", query)
 	r, err := s.c.Execute(query, args...)
 	c.Assert(err, IsNil)
 	return r
@@ -87,12 +94,40 @@ func (s *canalTestSuite) execute(c *C, query string, args ...interface{}) *mysql
 
 type testEventHandler struct {
 	DummyEventHandler
-
 	c *C
 }
 
-func (h *testEventHandler) Do(e *RowsEvent) error {
-	h.c.Logf("%s %v\n", e.Action, e.Rows)
+func (h *testEventHandler) OnRow(e *RowsEvent) error {
+	for i, r := range e.Rows {
+		log.Infof("index %d, row %v, value %v", i, r, r)
+	}
+	log.Infof("%s %v", e.Action, e.Rows)
+	return nil
+}
+
+func (h *testEventHandler) OnRotate(e *replication.RotateEvent) error {
+	log.Infof("rotate %v %d", string(e.NextLogName), e.Position)
+	return nil
+}
+func (h *testEventHandler) OnTableChanged(schema string, table string) error {
+	log.Infof("tablechanged schema: %s talbe: %s", schema, table)
+	return nil
+}
+func (h *testEventHandler) OnDDL(nextPos mysql.Position, queryEvent *replication.QueryEvent) error {
+	log.Infof("ddl %v", string(queryEvent.Query))
+	return nil
+}
+
+func (h *testEventHandler) OnXID(e mysql.Position) error             {
+	log.Infof("xid %v", e)
+	return nil
+}
+func (h *testEventHandler) OnGTID(e mysql.GTIDSet) error             {
+	log.Infof("gtid %v", e.String())
+	return nil
+}
+func (h *testEventHandler) OnPosSynced(e mysql.Position, b bool) error {
+	log.Infof("sync %v", e)
 	return nil
 }
 
@@ -145,7 +180,7 @@ func TestCreateTableExp(t *testing.T) {
 		m := expCreateTable.FindSubmatch([]byte(s))
 		mLen := len(m)
 		if m == nil || !bytes.Equal(m[mLen-1], table) || (len(m[mLen-2]) > 0 && !bytes.Equal(m[mLen-2], db)) {
-			t.Fatalf("TestCreateTableExp: case %s failed\n", s)
+			t.Fatalf("TestCreateTableExp: case %s failed", s)
 		}
 	}
 }
@@ -165,7 +200,7 @@ func TestAlterTableExp(t *testing.T) {
 		m := expAlterTable.FindSubmatch([]byte(s))
 		mLen := len(m)
 		if m == nil || !bytes.Equal(m[mLen-1], table) || (len(m[mLen-2]) > 0 && !bytes.Equal(m[mLen-2], db)) {
-			t.Fatalf("TestAlterTableExp: case %s failed\n", s)
+			t.Fatalf("TestAlterTableExp: case %s failed", s)
 		}
 	}
 }
@@ -188,7 +223,7 @@ func TestRenameTableExp(t *testing.T) {
 		m := expRenameTable.FindSubmatch([]byte(s))
 		mLen := len(m)
 		if m == nil || !bytes.Equal(m[mLen-1], table) || (len(m[mLen-2]) > 0 && !bytes.Equal(m[mLen-2], db)) {
-			t.Fatalf("TestRenameTableExp: case %s failed\n", s)
+			t.Fatalf("TestRenameTableExp: case %s failed", s)
 		}
 	}
 }
@@ -217,15 +252,15 @@ func TestDropTableExp(t *testing.T) {
 		m := expDropTable.FindSubmatch([]byte(s))
 		mLen := len(m)
 		if m == nil {
-			t.Fatalf("TestDropTableExp: case %s failed\n", s)
+			t.Fatalf("TestDropTableExp: case %s failed", s)
 			return
 		}
 		if mLen < 4 {
-			t.Fatalf("TestDropTableExp: case %s failed\n", s)
+			t.Fatalf("TestDropTableExp: case %s failed", s)
 			return
 		}
 		if !bytes.Equal(m[mLen-1], table) {
-			t.Fatalf("TestDropTableExp: case %s failed\n", s)
+			t.Fatalf("TestDropTableExp: case %s failed", s)
 		}
 	}
 }

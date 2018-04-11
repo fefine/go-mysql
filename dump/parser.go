@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/juju/errors"
-	"github.com/siddontang/go-mysql/mysql"
+	"go-mysql/mysql"
 )
 
 var (

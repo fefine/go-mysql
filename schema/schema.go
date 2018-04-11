@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/juju/errors"
-	"github.com/siddontang/go-mysql/mysql"
+	"go-mysql/mysql"
 )
 
 var ErrTableNotExist = errors.New("table is not exist")
@@ -32,14 +32,16 @@ const (
 )
 
 type TableColumn struct {
-	Name       string
-	Type       int
-	Collation  string
-	RawType    string
-	IsAuto     bool
-	IsUnsigned bool
-	EnumValues []string
-	SetValues  []string
+	Name        string
+	Type        int
+	Collation   string
+	RawType     string
+	IsAuto      bool
+	IsUnsigned  bool
+	EnumValues  []string
+	SetValues   []string
+	IsPk        bool
+	Value       interface{}
 }
 
 type Index struct {
@@ -57,13 +59,24 @@ type Table struct {
 	PKColumns []int
 }
 
+// 生成新的column
+func (c TableColumn) GenerateNewColumn(value interface{}) (col TableColumn) {
+	col = c
+	col.Value = value
+	return
+}
+
+func (c TableColumn) String() string {
+	return fmt.Sprintf("{%s %s %v %v}", c.Name, c.RawType, c.Value, c.IsPk)
+}
+
 func (ta *Table) String() string {
 	return fmt.Sprintf("%s.%s", ta.Schema, ta.Name)
 }
 
-func (ta *Table) AddColumn(name string, columnType string, collation string, extra string) {
+func (ta *Table) AddColumn(name string, columnType string, collation string, extra string, isPk bool) {
 	index := len(ta.Columns)
-	ta.Columns = append(ta.Columns, TableColumn{Name: name, Collation: collation})
+	ta.Columns = append(ta.Columns, TableColumn{Name: name, Collation: collation, IsPk: isPk})
 	ta.Columns[index].RawType = columnType
 
 	if strings.HasPrefix(columnType, "float") ||
@@ -213,9 +226,11 @@ func (ta *Table) fetchColumns(conn mysql.Executer) error {
 		name, _ := r.GetString(i, 0)
 		colType, _ := r.GetString(i, 1)
 		collation, _ := r.GetString(i, 2)
+		pk, _ := r.GetString(i, 4)
+		isPk := pk == "PRI"
 		extra, _ := r.GetString(i, 6)
 
-		ta.AddColumn(name, colType, collation, extra)
+		ta.AddColumn(name, colType, collation, extra, isPk)
 	}
 
 	return nil
@@ -233,13 +248,13 @@ func (ta *Table) fetchColumnsViaSqlDB(conn *sql.DB) error {
 	unused := &unusedVal
 
 	for r.Next() {
-		var name, colType, extra string
+		var name, colType, extra, pk string
 		var collation sql.NullString
-		err := r.Scan(&name, &colType, &collation, &unused, &unused, &unused, &extra, &unused, &unused)
+		err := r.Scan(&name, &colType, &collation, &unused, &pk, &unused, &extra, &unused, &unused)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		ta.AddColumn(name, colType, collation.String, extra)
+		ta.AddColumn(name, colType, collation.String, extra, pk == "PRI")
 	}
 
 	return r.Err()

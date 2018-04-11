@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/juju/errors"
-	"github.com/siddontang/go-mysql/schema"
+	"go-mysql/schema"
 )
 
 const (
@@ -21,17 +21,76 @@ type RowsEvent struct {
 	// for v1 and v2, the rows number must be even.
 	// Two rows for one event, format is [before update row, after update row]
 	// for update v0, only one row for a event, and we don't support this version.
-	Rows [][]interface{}
+
+	// 这些都应该不可变，不传递指针
+	Rows []Row
 }
+
+
+type Row struct {
+	BeforeColumns []schema.TableColumn
+	AfterColumns  []schema.TableColumn
+}
+
 
 func newRowsEvent(table *schema.Table, action string, rows [][]interface{}) *RowsEvent {
 	e := new(RowsEvent)
 
 	e.Table = table
 	e.Action = action
-	e.Rows = rows
+	e.Rows = newRows(table, action, rows)
 
 	return e
+}
+
+func newRows(table *schema.Table,  action string, originRows [][]interface{}) (rows []Row) {
+	rowsLen := len(originRows)
+	switch action {
+	case DeleteAction:
+		rows = make([]Row, 0, rowsLen)
+		for _, originRow := range originRows {
+			row := Row{}
+			row.BeforeColumns = make([]schema.TableColumn, 0, len(originRow))
+			for i, r := range originRow {
+				row.BeforeColumns = append(row.BeforeColumns, table.Columns[i].GenerateNewColumn(r))
+			}
+			rows = append(rows, row)
+		}
+	case InsertAction:
+		rows = make([]Row, 0, rowsLen)
+		for _, originRow := range originRows {
+			row := Row{}
+			row.AfterColumns = make([]schema.TableColumn, 0, len(originRow))
+			for i, r := range originRow {
+				row.AfterColumns = append(row.AfterColumns, table.Columns[i].GenerateNewColumn(r))
+			}
+			rows = append(rows, row)
+		}
+	case UpdateAction:
+		rows = make([]Row, 0, rowsLen / 2)
+		for i := 0; i < rowsLen; i += 2 {
+			row := Row{}
+			originRow := originRows[i]
+			row.BeforeColumns = make([]schema.TableColumn, 0, len(originRow))
+			row.AfterColumns = make([]schema.TableColumn, 0, len(originRow))
+
+			for i, r := range originRow {
+				row.BeforeColumns = append(row.BeforeColumns, table.Columns[i].GenerateNewColumn(r))
+			}
+			originRow = originRows[i + 1]
+			for i, r := range originRow {
+				row.AfterColumns = append(row.AfterColumns, table.Columns[i].GenerateNewColumn(r))
+			}
+			rows = append(rows, row)
+		}
+	default:
+		panic(errors.New("error row event"))
+	}
+	return
+}
+
+func (row Row) String() string {
+	return fmt.Sprintf("Before [%v] After [%v]", row.BeforeColumns, row.AfterColumns)
 }
 
 // Get primary keys in one row for a table, a table may use multi fields as the PK
