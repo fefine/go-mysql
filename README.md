@@ -10,3 +10,4 @@ fork from [go-mysql](https://github.com/siddontang/go-mysql)
 
 ## todo
 - 持久化binlog位置
+- 将rowEvent转为json
