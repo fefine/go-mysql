@@ -39,15 +39,15 @@ type DumpConfig struct {
 }
 
 type Config struct {
-	Addr     string `toml:"addr"`
-	User     string `toml:"user"`
-	Password string `toml:"password"`
+	Addr     string `toml:"addr" json:"addr"`
+	User     string `toml:"user" json:"user"`
+	Password string `toml:"password" json:"password"`
 
-	Charset         string        `toml:"charset"`
-	ServerID        uint32        `toml:"server_id"`
-	Flavor          string        `toml:"flavor"`
-	HeartbeatPeriod time.Duration `toml:"heartbeat_period"`
-	ReadTimeout     time.Duration `toml:"read_timeout"`
+	Charset         string        `toml:"charset" json:"charset"`
+	ServerID        uint32        `toml:"server_id" json:"server_id"`
+	Flavor          string        `toml:"flavor" json:"flavor"`
+	HeartbeatPeriod time.Duration `toml:"heartbeat_period" json:"heartbeat_period"`
+	ReadTimeout     time.Duration `toml:"read_timeout" json:"read_timeout"`
 
 	// IncludeTableRegex or ExcludeTableRegex should contain database name
 	// Only a table which matches IncludeTableRegex and dismatches ExcludeTableRegex will be processed

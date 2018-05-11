@@ -14,8 +14,8 @@ const (
 )
 
 type RowsEvent struct {
-	Table  *schema.Table
-	Action string
+	Table  *schema.Table `json:"table"`
+	Action string `json:"action"`
 	// changed row list
 	// binlog has three update event version, v0, v1 and v2.
 	// for v1 and v2, the rows number must be even.
@@ -23,13 +23,13 @@ type RowsEvent struct {
 	// for update v0, only one row for a event, and we don't support this version.
 
 	// 这些都应该不可变，不传递指针
-	Rows []Row
+	Rows []Row `json:"rows"`
 }
 
 
 type Row struct {
-	BeforeColumns []schema.TableColumn
-	AfterColumns  []schema.TableColumn
+	BeforeColumns []schema.TableColumn `json:"before"`
+	AfterColumns  []schema.TableColumn `json:"after"`
 }
 
 

@@ -32,16 +32,16 @@ const (
 )
 
 type TableColumn struct {
-	Name        string
+	Name        string `json:"name"`
 	Type        int
 	Collation   string
-	RawType     string
-	IsAuto      bool
-	IsUnsigned  bool
+	RawType     string `json:"raw_type"`
+	IsAuto      bool `json:"is_auto"`
+	IsUnsigned  bool `json:"is_unsigned"`
 	EnumValues  []string
 	SetValues   []string
-	IsPk        bool
-	Value       interface{}
+	IsPk        bool `json:"pk"`
+	Value       interface{} `json:"value"`
 }
 
 type Index struct {
@@ -51,8 +51,8 @@ type Index struct {
 }
 
 type Table struct {
-	Schema string
-	Name   string
+	Schema string `json:"schema"`
+	Name   string `json:"name"`
 
 	Columns   []TableColumn
 	Indexes   []*Index

@@ -242,8 +242,8 @@ type QueryEvent struct {
 	ExecutionTime uint32
 	ErrorCode     uint16
 	StatusVars    []byte
-	Schema        []byte
-	Query         []byte
+	Schema        []byte `json:"schema"`
+	Query         []byte `json:"query"`
 
 	// in fact QueryEvent dosen't have the GTIDSet information, just for beneficial to use
 	GSet GTIDSet

@@ -99,14 +99,14 @@ type testEventHandler struct {
 
 func (h *testEventHandler) OnRow(e *RowsEvent) error {
 	for i, r := range e.Rows {
-		log.Infof("index %d, row %v, value %v", i, r, r)
+		log.Infof("index %d, row %v", i, r)
 	}
 	log.Infof("%s %v", e.Action, e.Rows)
 	return nil
 }
 
 func (h *testEventHandler) OnRotate(e *replication.RotateEvent) error {
-	log.Infof("rotate %v %d", string(e.NextLogName), e.Position)
+	log.Infof("rotate- %v %d", string(e.NextLogName), e.Position)
 	return nil
 }
 func (h *testEventHandler) OnTableChanged(schema string, table string) error {
@@ -114,7 +114,7 @@ func (h *testEventHandler) OnTableChanged(schema string, table string) error {
 	return nil
 }
 func (h *testEventHandler) OnDDL(nextPos mysql.Position, queryEvent *replication.QueryEvent) error {
-	log.Infof("ddl %v", string(queryEvent.Query))
+	log.Infof("ddl- %v", string(queryEvent.Query))
 	return nil
 }
 

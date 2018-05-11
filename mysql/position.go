@@ -6,8 +6,8 @@ import (
 
 // For binlog filename + position based replication
 type Position struct {
-	Name string
-	Pos  uint32
+	Name string `json:"name"`
+	Pos  uint32 `json:"pos"`
 }
 
 func (p Position) Compare(o Position) int {
