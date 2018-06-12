@@ -34,16 +34,16 @@ func (s *canalTestSuite) SetUpSuite(c *C) {
 	cfg.HeartbeatPeriod = 200 * time.Millisecond
 	cfg.ReadTimeout = 300 * time.Millisecond
 	//cfg.Dump.ExecutionPath = "mysqldump"
-	cfg.Dump.TableDB = "test"
-	cfg.Dump.Tables = []string{"canal_test"}
+	cfg.Dump.TableDB = "canal_test"
+	//cfg.Dump.Tables = []string{"t1"}
 	cfg.Dump.Where = "id>0"
 
 	// include & exclude config
-	cfg.IncludeTableRegex = make([]string, 1)
-	cfg.IncludeTableRegex[0] = ".*\\.canal_test"
-	cfg.ExcludeTableRegex = make([]string, 2)
-	cfg.ExcludeTableRegex[0] = "mysql\\..*"
-	cfg.ExcludeTableRegex[1] = ".*\\..*_inner"
+	//cfg.IncludeTableRegex = make([]string, 1)
+	//cfg.IncludeTableRegex[0] = ".*\\.canal_test"
+	//cfg.ExcludeTableRegex = make([]string, 2)
+	//cfg.ExcludeTableRegex[0] = "mysql\\..*"
+	//cfg.ExcludeTableRegex[1] = ".*\\..*_inner"
 
 	var err error
 	s.c, err = NewCanal(cfg)

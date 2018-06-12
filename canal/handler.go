@@ -7,15 +7,11 @@ import (
 
 type EventHandler interface {
 	OnRotate(roateEvent *replication.RotateEvent) error
-	// OnTableChanged is called when the table is created, altered, renamed or dropped.
-	// You need to clear the associated data like cache with the table.
-	// It will be called before OnDDL.
 	OnTableChanged(schema string, table string) error
 	OnDDL(nextPos mysql.Position, queryEvent *replication.QueryEvent) error
 	OnRow(e *RowsEvent) error
 	OnXID(nextPos mysql.Position) error
 	OnGTID(gtid mysql.GTIDSet) error
-	// OnPosSynced Use your own way to sync position. When force is true, sync position immediately.
 	OnPosSynced(pos mysql.Position, force bool) error
 	String() string
 }

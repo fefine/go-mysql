@@ -18,6 +18,8 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/fefine/fqueue/producer"
+	"go-mysql/schema"
+	"bytes"
 )
 
 var (
@@ -25,7 +27,7 @@ var (
 )
 
 var strEndpoints = flag.String("etcd.endpoints", "127.0.0.1:2379", "etcd endpoints, must provide")
-var topic = flag.String("topic", "127.0.0.1:2379", "etcd endpoints, must provide")
+var topic = flag.String("topic", "local-topic", "etcd endpoints, must provide")
 //var partioner = flag.String("mq.partioner", "", "partitioner")
 var configFilePath = flag.String("c", "", "configuration file path")
 var overwritePos = flag.Bool("override", false, "provide position override saved position")
@@ -40,9 +42,9 @@ var flavor = flag.String("flavor", "mysql", "Flavor: mysql or mariadb")
 var serverID = flag.Int("server-id", 101, "Unique Server ID")
 var mysqldump = flag.String("mysqldump", "mysqldump", "mysqldump execution path")
 
-var dbs = flag.String("dbs", "springdemo", "dump databases, seperated by comma")
-var tables = flag.String("tables", "person", "dump tables, seperated by comma, will overwrite dbs")
-var tableDB = flag.String("table_db", "test", "database for dump tables")
+var dbs = flag.String("dbs", "canal_test", "dump databases, seperated by comma")
+var tables = flag.String("tables", "", "dump tables, seperated by comma, will overwrite dbs")
+var tableDB = flag.String("table_db", "", "database for dump tables")
 var ignoreTables = flag.String("ignore_tables", "", "ignore tables, must be database.table format, separated by comma")
 
 var startName = flag.String("bin_name", "mysql-bin.000001", "start sync from binlog name")
@@ -54,7 +56,6 @@ var readTimeout = flag.Duration("read_timeout", 90*time.Second, "connection read
 
 func main() {
 	flag.Parse()
-	// TODO 0，从配置文件中读取配置
 	cfg := canal.NewDefaultConfig()
 	if *configFilePath == "" {
 		cfg.Addr = fmt.Sprintf("%s:%d", *host, *port)
@@ -87,9 +88,11 @@ func main() {
 
 	if len(*tables) > 0 && len(*tableDB) > 0 {
 		subs := strings.Split(*tables, ",")
+		log.Infof("listen db: %s tables: %s", *tableDB, *tables)
 		c.AddDumpTables(*tableDB, subs...)
 	} else if len(*dbs) > 0 {
 		subs := strings.Split(*dbs, ",")
+		log.Infof("listen db.tables: %s", *dbs)
 		c.AddDumpDatabases(subs...)
 	}
 
@@ -127,8 +130,10 @@ func main() {
 
 	go func() {
 		if noPosition {
+			log.Debug("start sync from latest position")
 			err = c.Run()
 		} else {
+			log.Debugf("start sync from position{%v}", position)
 			err = c.RunFrom(*position)
 		}
 		if err != nil {
@@ -162,6 +167,7 @@ type BinlogEventHandler struct {
 	Producer  *producer.Producer
 }
 
+// 日志解析
 func NewBinlogEventHandler(strEndpoints, topic, partitioner string) (handler *BinlogEventHandler, err error) {
 	if strEndpoints == "" || topic == "" {
 		if strEndpoints == "" {
@@ -171,6 +177,8 @@ func NewBinlogEventHandler(strEndpoints, topic, partitioner string) (handler *Bi
 		}
 	}
 	handler = new(BinlogEventHandler)
+	handler.Endpoints = strings.Split(strEndpoints, ",")
+	handler.topic = topic
 	// connect etcd
 	handler.client, err = handler.connectEtcd()
 	if err != nil {
@@ -178,7 +186,7 @@ func NewBinlogEventHandler(strEndpoints, topic, partitioner string) (handler *Bi
 		return
 	}
 	log.Info("connect to etcd success")
-	// TODO 创建producer
+	// 创建producer
 	producerConfig := &producer.ProducerConfig{EtcdEndpoints: handler.Endpoints, Debug:true}
 	msgProducer, err := producer.NewProducer(producerConfig)
 	if err != nil {
@@ -191,7 +199,7 @@ func NewBinlogEventHandler(strEndpoints, topic, partitioner string) (handler *Bi
 // 从
 func (handler *BinlogEventHandler) GetLatestPosition() (pos *mysql.Position, err error) {
 	// save: /position = {}
-	resp, err := handler.client.Get(context.Background(), "/positions/pos")
+	resp, err := handler.client.Get(context.Background(), "/position/pos")
 	if err != nil {
 		log.Errorf("get position error, err: %v", err)
 		return
@@ -210,6 +218,7 @@ func (handler *BinlogEventHandler) GetLatestPosition() (pos *mysql.Position, err
 }
 
 func (handler *BinlogEventHandler) savePosition(position mysql.Position) {
+	log.Debugf("save position{%s-%d} on etcd", position.Name, position.Pos)
 	value, err := json.Marshal(position)
 	if err != nil {
 		log.Error("save position failed, marshal position failed, err: ", err)
@@ -232,33 +241,41 @@ func (handler *BinlogEventHandler) connectEtcd() (client *clientv3.Client, er er
 
 // binlog位置改变
 func (h *BinlogEventHandler) OnRotate(event *replication.RotateEvent) error {
-	log.Infof("[rotate] position: %d, next: %d", event.Position, string(event.NextLogName))
+	log.Infof("[rotate] position: %d, next: %s", event.Position, string(event.NextLogName))
 	return nil
 }
 
+// 结构变化
 func (h *BinlogEventHandler) OnDDL(nextPos mysql.Position, queryEvent *replication.QueryEvent) error {
-	value, err := json.Marshal(queryEvent)
+	value, err := json.Marshal(map[string]string{"schema": string(queryEvent.Schema), "type": "ddl", "ddl": string(queryEvent.Query)})
 	if err != nil {
 		log.Errorf("marshal row error, err: ", err)
 		return err
 	}
-	key := fmt.Sprintf("%s_ddl", queryEvent.Schema, queryEvent.Schema)
-	log.Debugf("push: key: %s, value: %s", key, string(value))
+
+	key := fmt.Sprintf("%s_ddl", queryEvent.Schema)
+	fmt.Sprintf("[push-ddl]: key: %s, value: %s", key, string(value))
 	return h.Producer.Push(context.Background(), h.topic, []byte(key), value, nil)
 }
 
+// 数据增删改查
 func (h *BinlogEventHandler) OnRow(event *canal.RowsEvent) error                 {
-	value, err := json.Marshal(event)
+	value, err := parseRowEvent(event)
 	if err != nil {
 		log.Errorf("marshal row error, err: ", err)
 		return err
 	}
-	key := fmt.Sprintf("%s_%s_%d", event.Table.Schema, event.Table.Name, event.Table.Columns[0])
-	log.Debugf("push: key: %s, value: %s", key, string(value))
-	return h.Producer.Push(context.Background(), h.topic, []byte(key), value, nil)
+	key := fmt.Sprintf("%s_%s", event.Table.Schema, event.Table.Name)
+	for _, row := range value {
+		fmt.Sprintf("[push-row]: key: %s, value: %s", key, PrettyJson(row))
+		err = h.Producer.Push(context.Background(), h.topic, []byte(key), row, nil)
+		if err != nil {
+			log.Error(err)
+			break
+		}
+	}
+	return nil
 }
-func (h *BinlogEventHandler) OnXID(mysql.Position) error             { return nil }
-func (h *BinlogEventHandler) OnGTID(mysql.GTIDSet) error             { return nil }
 
 func (h *BinlogEventHandler) OnPosSynced(position mysql.Position, b bool) error {
 	h.Position = position
@@ -268,4 +285,82 @@ func (h *BinlogEventHandler) OnPosSynced(position mysql.Position, b bool) error 
 
 func (h *BinlogEventHandler) String() string {
 	return "BinlogEventHandler"
+}
+
+/*
+{
+    "schema": "dbName",
+    "table": "tableName",
+    "type": [DDL | UPDATE | INSERT | DELETE],
+    "ddl": "alter table ...", // 仅在type==DDL时出现
+    "before": {               // type == insert不会出现
+        "name": {
+            "value": "ming",
+            "type": "int",
+            "pk": false       // primary key
+        },
+        ...
+    },
+    "after": {                // type==delete中不会出现
+        "name": {
+            "value": "ming",
+            "type": "int",
+            "pk": false       // primary key
+        },
+        ...
+    }
+}
+*/
+func parseRowEvent(event *canal.RowsEvent) ([][]byte, error) {
+	rows := make([][]byte, 0, len(event.Rows))
+	for _, row := range event.Rows {
+		jsonData := make(map[string]interface{})
+		jsonData["schema"] = event.Table.Schema
+		jsonData["table"] = event.Table.Name
+		jsonData["type"] = event.Action
+		jsonData["row"] = parseRow(row, event.Action)
+		data, err := json.Marshal(jsonData)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, data)
+	}
+	return rows, nil
+}
+
+func parseRow(row canal.Row, action string) (rowMap map[string]interface{}) {
+	rowMap = make(map[string]interface{})
+	switch action {
+	case canal.UpdateAction:
+		rowMap["before"] = parseColumns(row.BeforeColumns)
+		rowMap["after"] = parseColumns(row.AfterColumns)
+	case canal.InsertAction:
+		rowMap["after"] = parseColumns(row.AfterColumns)
+	case canal.DeleteAction:
+		rowMap["before"] = parseColumns(row.BeforeColumns)
+	}
+	return
+}
+
+func parseColumns(cols []schema.TableColumn) map[string]interface{} {
+	colsMap := make(map[string]interface{})
+	for _, col := range cols {
+		colsMap[col.Name] = parseColumn(col)
+	}
+	return colsMap
+}
+
+func parseColumn(col schema.TableColumn) map[string]interface{} {
+	return map[string]interface{}{"value": col.Value, "type": col.RawType, "pk": col.IsPk}
+}
+
+func PrettyJson(data interface{}) string {
+	buffer := new(bytes.Buffer)
+	encoder := json.NewEncoder(buffer)
+	encoder.SetIndent("", "  ")
+	err := encoder.Encode(data)
+	if err != nil {
+		return ""
+	}
+	return buffer.String()
 }

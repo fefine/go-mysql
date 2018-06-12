@@ -21,6 +21,7 @@ var (
 )
 
 func (c *Canal) startSyncer() (s *replication.BinlogStreamer,err error) {
+	// GTID (global transaction identifier)在MySQL5.6时引入，GTID是事务的全局唯一标识。GTID结构如下
 	if !c.useGTID {
 		pos := c.master.Position()
 		// 当没有提供binlog pos时，获取最新的
@@ -83,8 +84,6 @@ func (c *Canal) runSyncBinlog() error {
 		// We only save position with RotateEvent and XIDEvent.
 		// For RowsEvent, we can't save the position until meeting XIDEvent
 		// which tells the whole transaction is over.
-		// TODO: If we meet any DDL query, we must save too.
-		// TODO: Save position in file
 		switch e := ev.Event.(type) {
 		case *replication.RotateEvent:
 			pos.Name = string(e.NextLogName)
